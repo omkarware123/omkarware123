@@ -60,7 +60,7 @@ public class ExotelService {
         request.add("CallerId", "09513886363");
         request.add("TimeLimit", "120");
         request.add("Record", "true");
-        request.add("StatusCallback", "https://9c5e-117-248-248-230.ngrok-free.app/statusCallback");
+        request.add("StatusCallback", "https://b7fa-117-248-248-230.ngrok-free.app/statusCallback");
         request.add("StatusCallbackEvents[]", "terminal");
         return request;
     }

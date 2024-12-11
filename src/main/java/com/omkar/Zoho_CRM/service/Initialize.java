@@ -1,5 +1,6 @@
 package com.omkar.Zoho_CRM.service;
 
+import com.omkar.Zoho_CRM.config.ZohoProperties;
 import com.zoho.api.authenticator.OAuthToken;
 import com.zoho.api.authenticator.Token;
 import com.zoho.api.authenticator.store.FileStore;
@@ -14,10 +15,10 @@ import com.zoho.crm.api.exception.SDKException;
 import jakarta.annotation.PostConstruct;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.http.*;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
@@ -30,32 +31,36 @@ import java.util.Map;
 @Service
 public class Initialize {
 
-    private static final String CLIENT_ID = "1000.AVFYUVNMDYIZBV1R9QA7FAYJYPVBGN";
-    private static final String CLIENT_SECRET = "922e6aec5e5149e42195b9e247e6cb5a611bd0dd0f";
-    private static final String REDIRECT_URI = "https://www.google.com";
-    private static String REFRESH_TOKEN = "1000.2fc873b7fb7702f39371590857015821.9efa9a260f3e52eedb179c4d713b85ad";
-    private static String ACCESS_TOKEN = "1000.02e3077032aa9e94fecb79df94b5e274.469ac57b583b2077f1bb7b4ea2e655e2";
-
-    @Autowired
     private final RestTemplate restTemplate;
+    private final ZohoProperties zohoProperties;
+
+    private final String clientId;
+    private final String clientSecret;
+    private final String redirectUri;
+    private String refreshToken;
+    private String accessToken;
 
     @Autowired
-    public Initialize(RestTemplate restTemplate) {
+    public Initialize(RestTemplate restTemplate, ZohoProperties zohoProperties) {
         this.restTemplate = restTemplate;
-        System.out.println("RestTemplate injected: " + restTemplate);
+        this.zohoProperties = zohoProperties;
+        this.clientId = zohoProperties.getClientId();
+        this.clientSecret = zohoProperties.getClientSecret();
+        this.redirectUri = zohoProperties.getRedirectUri();
+        this.refreshToken = zohoProperties.getRefreshToken();
+        this.accessToken = zohoProperties.getAccessToken();
     }
-
 
     @PostConstruct
     public void setupZohoSDK() {
         try {
-            initialize(); // Initialize once after bean creation
+            initialize();
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    public static void initialize() throws Exception {
+    public void initialize() throws Exception {
         Logger logger = new Logger.Builder()
                 .level(Levels.INFO)
                 .filePath("java_sdk_log.log")
@@ -64,14 +69,14 @@ public class Initialize {
         Environment environment = INDataCenter.PRODUCTION;
 
         Token token = new OAuthToken.Builder()
-                .clientID(CLIENT_ID)
-                .clientSecret(CLIENT_SECRET)
-                .refreshToken(REFRESH_TOKEN)
-                .accessToken(ACCESS_TOKEN)
-                .redirectURL(REDIRECT_URI)
+                .clientID(clientId)
+                .clientSecret(clientSecret)
+                .refreshToken(refreshToken)
+                .accessToken(accessToken)
+                .redirectURL(redirectUri)
                 .build();
 
-        TokenStore tokenstore = new FileStore("zoho_oauth_tokens.txt");
+        TokenStore tokenStore = new FileStore("zoho_oauth_tokens.txt");
 
         SDKConfig sdkConfig = new SDKConfig.Builder()
                 .autoRefreshFields(true)
@@ -81,31 +86,28 @@ public class Initialize {
         new Initializer.Builder()
                 .environment(environment)
                 .token(token)
-                .store(tokenstore)
+                .store(tokenStore)
                 .SDKConfig(sdkConfig)
                 .logger(logger)
                 .initialize();
     }
 
-    // Refresh the access token using the refresh token
     public long refreshAccessToken() {
         String tokenUrl = "https://accounts.zoho.in/oauth/v2/token";
 
-        LocalDateTime now = LocalDateTime.now();                //prints current date and time w/o timezone info
+        LocalDateTime now = LocalDateTime.now();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         String formattedTime = now.format(formatter);
-//        ZonedDateTime zonedDateTime = ZonedDateTime.now();    //prints current date and time with timezone info
-//        Instant instant = Instant.now();                      //prints current UTC time
         System.out.println("\nrefreshAccessToken is called at: " + formattedTime);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
 
         MultiValueMap<String, String> bodyParams = new LinkedMultiValueMap<>();
-        bodyParams.add("client_id", CLIENT_ID);
-        bodyParams.add("client_secret", CLIENT_SECRET);
+        bodyParams.add("client_id", clientId);
+        bodyParams.add("client_secret", clientSecret);
         bodyParams.add("grant_type", "refresh_token");
-        bodyParams.add("refresh_token", REFRESH_TOKEN);
+        bodyParams.add("refresh_token", refreshToken);
 
         try {
             HttpEntity<MultiValueMap<String, String>> requestEntity = new HttpEntity<>(bodyParams, headers);
@@ -118,23 +120,24 @@ public class Initialize {
                 System.out.println("New access token: " + newAccessToken);
 
                 if (responseObject.has("refresh_token")) {
-                    REFRESH_TOKEN = responseObject.getString("refresh_token");
-                    System.out.println("New refresh token: " + REFRESH_TOKEN);
+                    refreshToken = responseObject.getString("refresh_token");
+                    System.out.println("New refresh token: " + refreshToken);
                 }
 
-                TokenStore tokenstore = new FileStore("./zoho_oauth_tokens.txt");
+                TokenStore tokenStore = new FileStore("./zoho_oauth_tokens.txt");
                 Token token = new OAuthToken.Builder()
-                        .clientID(CLIENT_ID)
-                        .clientSecret(CLIENT_SECRET)
-                        .refreshToken(REFRESH_TOKEN)
+                        .clientID(clientId)
+                        .clientSecret(clientSecret)
+                        .refreshToken(refreshToken)
                         .accessToken(newAccessToken)
                         .build();
-                tokenstore.saveToken(token);
+                tokenStore.saveToken(token);
                 Initializer.getInitializer().getStore().saveToken(token);
 
-                // Extract expires_in value
                 long expiresIn = responseObject.has("expires_in") ? responseObject.getLong("expires_in") : 3600;
                 System.out.println("Token expires in: " + expiresIn + " seconds");
+
+                accessToken = newAccessToken;
 
                 return expiresIn;
             }
@@ -143,12 +146,10 @@ public class Initialize {
             e.printStackTrace();
         }
 
-        return 3600; // Default to 1 hour if expires_in is not available
+        return 3600;
     }
 
-
     public String getAccessToken() {
-        String accesst="";
         try {
             if (Initializer.getInitializer() == null) {
                 initialize();
@@ -156,19 +157,10 @@ public class Initialize {
             List<Token> tokens = Initializer.getInitializer().getStore().getTokens();
 
             for (Token token : tokens) {
-                if (token instanceof OAuthToken oauthToken) {  // Ensure the token is an OAuthToken
-
-                    // Retrieve access token and refresh token
-                    String accessToken = oauthToken.getAccessToken();
-                    String refreshToken = oauthToken.getRefreshToken();
-
-                    accesst=accessToken;
-
+                if (token instanceof OAuthToken oauthToken) {
+                    return oauthToken.getAccessToken();
                 }
             }
-//            System.out.println("ACCESS TOKEN: " + accesst);
-            return accesst;
-
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -176,50 +168,34 @@ public class Initialize {
     }
 
     public Map<String, String> retrieveTokens() throws SDKException {
-        // Initialize a map to store the access and refresh tokens
         Map<String, String> tokenMap = new HashMap<>();
 
-        // Get the list of tokens from the token store
         List<Token> tokens = Initializer.getInitializer().getStore().getTokens();
 
-        // Iterate over the tokens and retrieve the access and refresh tokens
         for (Token token : tokens) {
-            if (token instanceof OAuthToken oauthToken) {  // Ensure the token is an OAuthToken
-
-                // Retrieve access token and refresh token
-                String accessToken = oauthToken.getAccessToken();
-                String refreshToken = oauthToken.getRefreshToken();
-
-                // Store them in the map
-                tokenMap.put("accessToken", accessToken);
-                tokenMap.put("refreshToken", refreshToken);
+            if (token instanceof OAuthToken oauthToken) {
+                tokenMap.put("accessToken", oauthToken.getAccessToken());
+                tokenMap.put("refreshToken", oauthToken.getRefreshToken());
             }
         }
 
-        // Return the map with access and refresh tokens
         return tokenMap;
     }
 
-    // Method to handle Zoho API calls with automatic token refresh
     public ResponseEntity<String> makeZohoAPICall(String url) {
         try {
             HttpHeaders headers = new HttpHeaders();
-            headers.setBearerAuth(getAccessToken()); // Use the access token
+            headers.setBearerAuth(getAccessToken());
             HttpEntity<String> entity = new HttpEntity<>(headers);
 
-            // Make the API call
             return restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
         } catch (HttpClientErrorException e) {
-            // Check if the response status is 401 Unauthorized
             if (e.getStatusCode() == HttpStatus.UNAUTHORIZED) {
-                // Access token has expired, refresh the token
                 refreshAccessToken();
-                // Retry the API call with a new access token
                 return makeZohoAPICall(url);
             } else {
-                throw e; // For other exceptions, throw them further
+                throw e;
             }
         }
     }
-
 }
